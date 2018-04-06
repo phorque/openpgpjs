@@ -373,29 +373,40 @@ describe('OpenPGP.js public api tests', function() {
 
   describe('generateKey - unit tests', function() {
     let keyGenStub;
-    let keyObjStub;
+    let keyWriteStub;
+    let pubKeyWriteStub;
+    let pubKeyWriteOldStub;
+    let keytoPublicStub;
+    let sigWriteStub;
+    let signStub;
     let getWebCryptoAllStub;
 
     beforeEach(function() {
-      keyObjStub = {
-        armor: function() {
-          return 'priv_key';
-        },
-        toPublic: function() {
-          return {
-            armor: function() {
-              return 'pub_key';
-            }
-          };
-        }
-      };
-      keyGenStub = stub(openpgp.key, 'generate');
-      keyGenStub.returns(resolves(keyObjStub));
+      keyGenStub = stub(openpgp.packet.SecretKey.prototype, 'generate');
+      keyGenStub.returns(resolves({}));
+      keyWriteStub = stub(openpgp.packet.SecretKey.prototype, 'write');
+      keyWriteStub.returns(new Uint8Array(0));
+      pubKeyWriteStub = stub(openpgp.packet.PublicKey.prototype, 'write');
+      pubKeyWriteStub.returns(new Uint8Array(0));
+      pubKeyWriteOldStub = stub(openpgp.packet.PublicKey.prototype, 'writeOld');
+      pubKeyWriteOldStub.returns(new Uint8Array(0));
+      keytoPublicStub = stub(openpgp.key.Key.prototype, 'toPublic');
+      keytoPublicStub.returns({ armor() { return 'armor'; } });
+      sigWriteStub = stub(openpgp.packet.Signature.prototype, 'write');
+      sigWriteStub.returns(new Uint8Array(0));
+      signStub = stub(openpgp.packet.Signature.prototype, 'sign');
+      signStub.returns(resolves(null));
       getWebCryptoAllStub = stub(openpgp.util, 'getWebCryptoAll');
     });
 
     afterEach(function() {
       keyGenStub.restore();
+      keyWriteStub.restore();
+      pubKeyWriteStub.restore();
+      pubKeyWriteOldStub.restore();
+      keytoPublicStub.restore();
+      sigWriteStub.restore();
+      signStub.restore();
       openpgp.destroyWorker();
       getWebCryptoAllStub.restore();
     });
@@ -404,40 +415,40 @@ describe('OpenPGP.js public api tests', function() {
       const opt = {
         userIds: [{ name: {}, email: 'text@example.com' }]
       };
-      const test = openpgp.generateKey.bind(null, opt);
-      expect(test).to.throw(/Invalid user id format/);
+      const test = openpgp.generateKey(opt);
+      return test.catch((m) => expect(m).to.match(/Invalid user id format/));
     });
 
     it('should fail for invalid user email address', function() {
       const opt = {
         userIds: [{ name: 'Test User', email: 'textexample.com' }]
       };
-      const test = openpgp.generateKey.bind(null, opt);
-      expect(test).to.throw(/Invalid user id format/);
+      const test = openpgp.generateKey(opt);
+      return test.catch((m) => expect(m).to.match(/Invalid user id format/));
     });
 
     it('should fail for invalid user email address', function() {
       const opt = {
         userIds: [{ name: 'Test User', email: 'text@examplecom' }]
       };
-      const test = openpgp.generateKey.bind(null, opt);
-      expect(test).to.throw(/Invalid user id format/);
+      const test = openpgp.generateKey(opt);
+      return test.catch((m) => expect(m).to.match(/Invalid user id format/));
     });
 
     it('should fail for invalid string user id', function() {
       const opt = {
         userIds: ['Test User text@example.com>']
       };
-      const test = openpgp.generateKey.bind(null, opt);
-      expect(test).to.throw(/Invalid user id format/);
+      const test = openpgp.generateKey(opt);
+      return test.catch((m) => expect(m).to.match(/Invalid user id format/));
     });
 
     it('should fail for invalid single string user id', function() {
       const opt = {
         userIds: 'Test User text@example.com>'
       };
-      const test = openpgp.generateKey.bind(null, opt);
-      expect(test).to.throw(/Invalid user id format/);
+      const test = openpgp.generateKey(opt);
+      return test.catch((m) => expect(m).to.match(/Invalid user id format/));
     });
 
     it('should work for valid single string user id', function() {
@@ -491,15 +502,7 @@ describe('OpenPGP.js public api tests', function() {
         date: now
       };
       return openpgp.generateKey(opt).then(function(newKey) {
-        expect(keyGenStub.withArgs({
-          userIds: ['Test User <text@example.com>'],
-          passphrase: 'secret',
-          numBits: 2048,
-          unlocked: true,
-          keyExpirationTime: 0,
-          curve: "",
-          date: now
-        }).calledOnce).to.be.true;
+        expect(keyGenStub.withArgs(2048).calledTwice).to.be.true;
         expect(newKey.key).to.exist;
         expect(newKey.privateKeyArmored).to.exist;
         expect(newKey.publicKeyArmored).to.exist;
@@ -510,15 +513,7 @@ describe('OpenPGP.js public api tests', function() {
       const now = new Date();
 
       return openpgp.generateKey({date: now}).then(function(newKey) {
-        expect(keyGenStub.withArgs({
-          userIds: [],
-          passphrase: undefined,
-          numBits: 2048,
-          unlocked: false,
-          keyExpirationTime: 0,
-          curve: "",
-          date: now
-        }).calledOnce).to.be.true;
+        expect(keyGenStub.withArgs(2048).calledTwice).to.be.true;
         expect(newKey.key).to.exist;
       });
     });
@@ -533,9 +528,10 @@ describe('OpenPGP.js public api tests', function() {
       const proxyGenStub = stub(openpgp.getWorker(), 'delegate');
       getWebCryptoAllStub.returns();
 
-      openpgp.generateKey();
-      expect(proxyGenStub.calledOnce).to.be.true;
-      expect(keyGenStub.calledOnce).to.be.false;
+      openpgp.generateKey().then((newKey) => {
+        expect(keyGenStub.called).to.be.false;
+        expect(proxyGenStub.calledOnce).to.be.true;
+      });
     });
   });
 
